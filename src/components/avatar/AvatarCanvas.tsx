@@ -17,7 +17,7 @@ function AvatarModel({ avatarState, audioLevel = 0 }: AvatarCanvasProps) {
   const leftEyeRef = useRef<THREE.Mesh>(null);
   const rightEyeRef = useRef<THREE.Mesh>(null);
 
-  const { scene } = useGLTF("/models/avatar.glb");
+  const { scene } = useGLTF("/avatar.glb");
 
   useEffect(() => {
     if (scene) {
@@ -221,7 +221,7 @@ export default function AvatarCanvas({ avatarState, audioLevel = 0 }: AvatarCanv
   const [hasModel, setHasModel] = useState(false);
 
   useEffect(() => {
-    fetch("/models/avatar.glb", { method: "HEAD" })
+    fetch("/avatar.glb", { method: "HEAD" })
       .then((res) => setHasModel(res.ok))
       .catch(() => setHasModel(false));
   }, []);
@@ -230,8 +230,12 @@ export default function AvatarCanvas({ avatarState, audioLevel = 0 }: AvatarCanv
     <div className="w-full h-full relative">
       <Canvas
         camera={{ position: [0, 0.5, 3], fov: 45 }}
-        shadows
+        shadows={{ type: THREE.PCFShadowMap }}
+        gl={{ antialias: true, alpha: true }}
         className="bg-gradient-to-b from-blue-100 to-purple-100 rounded-3xl"
+        onCreated={({ gl }) => {
+          gl.shadowMap.type = THREE.PCFShadowMap;
+        }}
       >
         <ambientLight intensity={0.6} />
         <directionalLight
@@ -239,6 +243,8 @@ export default function AvatarCanvas({ avatarState, audioLevel = 0 }: AvatarCanv
           intensity={1}
           castShadow
           shadow-mapSize={[1024, 1024]}
+          shadow-camera-near={0.1}
+          shadow-camera-far={100}
         />
         <pointLight position={[-5, 3, -5]} intensity={0.5} color="#FFE4C4" />
         

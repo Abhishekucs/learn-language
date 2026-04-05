@@ -49,6 +49,7 @@ export default function PracticePage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const conversationHistoryRef = useRef<Message[]>([]);
+  const hasStartedGreetingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -70,7 +71,8 @@ export default function PracticePage() {
       setMessages(data.messages || []);
       conversationHistoryRef.current = data.messages || [];
       
-      if (data.messages.length === 0) {
+      if (data.messages.length === 0 && !hasStartedGreetingRef.current) {
+        hasStartedGreetingRef.current = true;
         startGreeting();
       }
     } catch (err) {
@@ -82,6 +84,7 @@ export default function PracticePage() {
   }
 
   useEffect(() => {
+    hasStartedGreetingRef.current = false;
     if (conversationId) {
       fetchConversation();
     }
@@ -141,7 +144,7 @@ export default function PracticePage() {
       conversationHistoryRef.current = [...conversationHistoryRef.current, greetingMessage];
 
       await saveMessage(greetingMessage);
-      await playTTS(greetingText, "english");
+      await playTTS(greetingText, "mixed");
     } catch (err) {
       console.error("Error starting greeting:", err);
       const greetingMessage: Message = {
@@ -154,7 +157,7 @@ export default function PracticePage() {
       };
       setMessages((prev) => [...prev, greetingMessage]);
       conversationHistoryRef.current = [...conversationHistoryRef.current, greetingMessage];
-      await playTTS("Hello! I'm Yuki. Let's practice Japanese together!", "english");
+      await playTTS("Hello! I'm Yuki. Let's practice Japanese together!", "mixed");
     }
   }
 
@@ -175,32 +178,50 @@ export default function PracticePage() {
   }
 
   async function transcribeAudio(audioBlob: Blob): Promise<string> {
+    console.log("=== TRANSCRIBE ===");
+    console.log("Audio blob size:", audioBlob.size, "type:", audioBlob.type);
+    
+    if (audioBlob.size < 1000) {
+      console.log("Audio blob too small, ignoring");
+      return "";
+    }
+    
     const formData = new FormData();
-    formData.append("audio", audioBlob);
+    formData.append("audio", audioBlob, "audio.webm");
 
     const response = await fetch("/api/transcribe", {
       method: "POST",
       body: formData,
     });
 
+    console.log("Transcribe response status:", response.status);
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error("Transcribe error:", errorData);
       throw new Error(`Transcription failed: ${errorData.error || response.statusText}`);
     }
 
     const data = await response.json();
+    console.log("Transcribe result:", data);
     return data.text || "";
   }
 
   async function getChatResponse(userTranscript: string): Promise<string> {
+    const messagesToSend = conversationHistoryRef.current.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    
+    console.log("=== CHAT CALL ===");
+    console.log("Messages being sent:", JSON.stringify(messagesToSend));
+    console.log("User transcript:", userTranscript);
+    
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: conversationHistoryRef.current.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        messages: messagesToSend,
         userTranscript,
       }),
     });
@@ -219,7 +240,7 @@ export default function PracticePage() {
     return data.text;
   }
 
-  async function playTTS(text: string, language: "english" | "japanese" = "english") {
+  async function playTTS(text: string, language: "english" | "japanese" | "mixed" = "english") {
     return new Promise<void>((resolve) => {
       setAvatarState("speaking");
       console.log("Playing TTS:", text.substring(0, 50) + "...");
@@ -227,7 +248,7 @@ export default function PracticePage() {
       fetch("/api/speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, language }),
+        body: JSON.stringify({ text, language: "mixed", mixed: true }),
       })
         .then((response) => {
           console.log("TTS response status:", response.status);
@@ -303,12 +324,14 @@ export default function PracticePage() {
     setCurrentError(null);
 
     try {
+      console.log("Starting transcription...");
       const transcript = await transcribeAudio(audioBlob);
-      console.log("Transcript:", transcript);
+      console.log("Transcript received:", transcript);
 
       if (!transcript || transcript.trim().length === 0) {
         console.log("Empty transcript, ignoring");
         setAvatarState("idle");
+        setIsProcessing(false);
         return;
       }
 
@@ -344,7 +367,7 @@ export default function PracticePage() {
 
       await saveMessage(assistantMessage);
 
-      await playTTS(response, "english");
+      await playTTS(response, "mixed");
     } catch (err) {
       console.error("Error processing audio:", err);
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
@@ -398,9 +421,9 @@ export default function PracticePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-hidden">
+      <header className="bg-white shadow-sm flex-shrink-0">
+        <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push("/")}
@@ -421,20 +444,20 @@ export default function PracticePage() {
               </svg>
             </button>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                 <span>🌸</span>
                 Practice Session
               </h1>
-              <p className="text-sm text-gray-500">with Yuki</p>
+              <p className="text-xs text-gray-500">with Yuki</p>
             </div>
           </div>
 
           <button
             onClick={handleEndSession}
-            className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition-colors flex items-center gap-2"
+            className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition-colors flex items-center gap-2 text-sm"
           >
             <svg
-              className="w-5 h-5"
+              className="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -446,49 +469,51 @@ export default function PracticePage() {
                 d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
               />
             </svg>
-            End Session
+            End
           </button>
         </div>
       </header>
 
       {currentError && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 mx-4 mt-2 rounded">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 mx-4 flex-shrink-0">
           <p className="font-medium">Error:</p>
           <p className="text-sm">{currentError}</p>
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)]">
-          <div className="lg:col-span-2 bg-white rounded-3xl shadow-lg overflow-hidden">
+      <main className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex min-h-0 p-4 gap-4">
+          <div className="w-1/5 bg-white rounded-3xl shadow-lg overflow-hidden flex flex-col">
             <AvatarCanvas avatarState={avatarState} audioLevel={audioLevel} />
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex-1 min-h-0">
+          <div className="w-4/5 flex flex-col gap-4 min-h-0">
+            <div className="flex-1 min-h-0 bg-white rounded-2xl shadow-lg overflow-hidden">
               <ChatInterface messages={messages} isProcessing={isProcessing} />
             </div>
 
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <SpeechButton
-                isListening={isListening}
-                isProcessing={isProcessing}
-                onAudioData={handleAudioData}
-                onListeningStateChange={setIsListening}
-              />
-            </div>
-
-            <div className="bg-indigo-50 rounded-xl p-4">
-              <h4 className="font-medium text-indigo-900 mb-2 flex items-center gap-2">
+            <div className="bg-indigo-50 rounded-xl p-3">
+              <h4 className="font-medium text-indigo-900 mb-1 flex items-center gap-2 text-sm">
                 <span>💡</span>
                 Tips
               </h4>
-              <ul className="text-sm text-indigo-700 space-y-1">
+              <ul className="text-xs text-indigo-700 space-y-0.5">
                 <li>• Speak in Japanese to practice</li>
                 <li>• Don&apos;t worry about mistakes</li>
                 <li>• Yuki will help correct you</li>
               </ul>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-white border-t shadow-lg px-4 py-4">
+          <div className="max-w-2xl mx-auto">
+            <SpeechButton
+              isListening={isListening}
+              isProcessing={isProcessing}
+              onAudioData={handleAudioData}
+              onListeningStateChange={setIsListening}
+            />
           </div>
         </div>
       </main>

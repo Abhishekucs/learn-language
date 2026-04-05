@@ -49,7 +49,9 @@ export default function SpeechButton({
   }, []);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
+    console.log("stopRecording called, current state:", mediaRecorderRef.current?.state, "isRecording:", isRecording);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      console.log("Stopping MediaRecorder...");
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       onListeningStateChange(false);
@@ -57,60 +59,104 @@ export default function SpeechButton({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+    } else {
+      console.log("MediaRecorder not in recording state or already stopped");
     }
   }, [isRecording, onListeningStateChange]);
 
   const startRecording = async () => {
     try {
+      console.log("Requesting microphone access...");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
         },
       });
 
+      console.log("Microphone access granted");
+
       audioContextRef.current = new AudioContext();
+      
+      if (audioContextRef.current.state === "suspended") {
+        console.log("AudioContext suspended, resuming...");
+        await audioContextRef.current.resume();
+      }
+      
       const source = audioContextRef.current.createMediaStreamSource(stream);
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 256;
       source.connect(analyserRef.current);
 
-      let mimeType = "audio/webm";
-      if (!MediaRecorder.isTypeSupported("audio/webm")) {
-        mimeType = MediaRecorder.isTypeSupported("audio/mp4") 
-          ? "audio/mp4" 
-          : "audio/ogg";
+      let mimeType = "audio/webm;codecs=opus";
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.log("Codec not supported, trying alternatives...");
+        mimeType = MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : MediaRecorder.isTypeSupported("audio/ogg")
+          ? "audio/ogg"
+          : "";
       }
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      console.log("Using mimeType:", mimeType);
+
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const chunks: Blob[] = [];
+      let chunkCount = 0;
+      let lastDataTime = Date.now();
 
       mediaRecorder.ondataavailable = (event) => {
+        const now = Date.now();
+        console.log(`Data available after ${now - lastDataTime}ms, size:`, event.data.size);
+        lastDataTime = now;
         if (event.data.size > 0) {
+          chunkCount++;
           chunks.push(event.data);
         }
       };
 
+      mediaRecorder.onerror = (event: any) => {
+        console.error("MediaRecorder error:", event);
+      };
+
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mimeType });
+        console.log("onstop called, chunks collected:", chunkCount);
+        const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+        console.log("Recording stopped, blob size:", blob.size, "chunks:", chunkCount);
         
         if (blob.size > 1000) {
+          console.log("Sending audio blob to handler...");
           onAudioData(blob);
         } else {
-          console.log("Audio too short, ignoring");
+          console.log("Audio too short or empty, ignoring. Size:", blob.size);
         }
 
         stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(250);
+      
+      if (mimeType) {
+        mediaRecorder.start(100);
+      } else {
+        mediaRecorder.start();
+      }
+      
       setIsRecording(true);
       onListeningStateChange(true);
       updateAudioLevel();
       
-      console.log("Recording started with mimeType:", mimeType);
+      console.log("Recording started, state:", mediaRecorder.state);
+      
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+          console.log("Auto-stopping after 30 seconds to prevent infinite recording");
+          stopRecording();
+        }
+      }, 30000);
     } catch (error) {
       console.error("Error starting recording:", error);
       alert("Could not access microphone. Please allow microphone access and try again.");
