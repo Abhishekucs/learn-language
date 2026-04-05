@@ -222,6 +222,7 @@ export default function PracticePage() {
   async function playTTS(text: string, language: "english" | "japanese" = "english") {
     return new Promise<void>((resolve) => {
       setAvatarState("speaking");
+      console.log("Playing TTS:", text.substring(0, 50) + "...");
 
       fetch("/api/speech", {
         method: "POST",
@@ -229,28 +230,47 @@ export default function PracticePage() {
         body: JSON.stringify({ text, language }),
       })
         .then((response) => {
+          console.log("TTS response status:", response.status);
           if (!response.ok) {
-            throw new Error("TTS failed");
+            return response.json().then(err => {
+              console.error("TTS API error:", err);
+              throw new Error(err.error || "TTS failed");
+            });
           }
           return response.blob();
         })
         .then((blob) => {
+          console.log("Received audio blob, size:", blob.size);
+          if (blob.size === 0) {
+            throw new Error("Empty audio blob");
+          }
+          
           const url = URL.createObjectURL(blob);
 
           if (audioRef.current) {
             audioRef.current.pause();
+            audioRef.current = null;
           }
 
           audioRef.current = new Audio(url);
+          audioRef.current.volume = 1.0;
+
+          audioRef.current.oncanplay = () => {
+            console.log("Audio can play, starting playback");
+            audioRef.current?.play().catch(err => {
+              console.error("Play error:", err);
+            });
+          };
 
           audioRef.current.onended = () => {
+            console.log("Audio ended");
             setAvatarState("idle");
             setAudioLevel(0);
             resolve();
           };
 
-          audioRef.current.onerror = () => {
-            console.error("Audio playback error");
+          audioRef.current.onerror = (e) => {
+            console.error("Audio error:", e);
             setAvatarState("idle");
             setAudioLevel(0);
             resolve();
