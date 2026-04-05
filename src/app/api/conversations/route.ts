@@ -15,8 +15,9 @@ export async function GET() {
     return NextResponse.json(conversations);
   } catch (error) {
     console.error("Error fetching conversations:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to fetch conversations" },
+      { error: "Failed to fetch conversations", details: message },
       { status: 500 }
     );
   }
