@@ -26,8 +26,13 @@ export default function HomePage() {
   async function fetchConversations() {
     try {
       const response = await fetch("/api/conversations");
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversations");
+      }
       const data = await response.json();
-      setConversations(data);
+      if (Array.isArray(data)) {
+        setConversations(data);
+      }
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
     } finally {
