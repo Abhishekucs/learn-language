@@ -7,7 +7,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   japaneseText?: string;
-  hindiText?: string;
+  englishText?: string;
   createdAt: Date;
 }
 
@@ -69,17 +69,17 @@ export default function ChatInterface({ messages, isProcessing }: ChatInterfaceP
                 <div className="space-y-3">
                   {message.japaneseText && (
                     <div className="bg-purple-50 rounded-lg p-2 border-l-4 border-purple-400">
-                      <p className="text-xs text-purple-600 font-medium mb-1">🇯🇵 Japanese (Practice):</p>
+                      <p className="text-xs text-purple-600 font-medium mb-1">🇯🇵 日本語 (Japanese):</p>
                       <p className="text-base leading-relaxed text-purple-900">{message.japaneseText}</p>
                     </div>
                   )}
-                  {message.hindiText && (
-                    <div>
-                      <p className="text-xs text-gray-500 font-medium mb-1">🇮🇳 हिंदी (Explanation):</p>
-                      <p className="text-sm leading-relaxed">{message.hindiText}</p>
+                  {message.englishText && (
+                    <div className="bg-blue-50 rounded-lg p-2 border-l-4 border-blue-400">
+                      <p className="text-xs text-blue-600 font-medium mb-1">🇺🇸 English (Explanation):</p>
+                      <p className="text-sm leading-relaxed text-blue-900">{message.englishText}</p>
                     </div>
                   )}
-                  {!message.japaneseText && !message.hindiText && (
+                  {!message.japaneseText && !message.englishText && (
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                   )}
                 </div>

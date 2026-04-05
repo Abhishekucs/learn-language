@@ -20,7 +20,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   japaneseText?: string;
-  hindiText?: string;
+  englishText?: string;
   createdAt: Date;
 }
 
@@ -46,33 +46,15 @@ export default function PracticePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentError, setCurrentError] = useState<string | null>(null);
-  const [voicesLoaded, setVoicesLoaded] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const conversationHistoryRef = useRef<Message[]>([]);
-  const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      speechSynthesisRef.current = window.speechSynthesis;
-      
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        console.log("Available voices:", voices.map(v => `${v.name} (${v.lang})`));
-        setVoicesLoaded(true);
-      };
-
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
-      }
-      if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.cancel();
       }
     };
   }, []);
@@ -105,21 +87,21 @@ export default function PracticePage() {
     }
   }, [conversationId]);
 
-  function extractJapaneseAndHindi(text: string): { japanese?: string; hindi?: string } {
-    const japanesePattern = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]+/g;
+  function extractJapaneseAndEnglish(text: string): { japanese?: string; english?: string } {
+    const japanesePattern = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF！？。、]+/g;
     const japaneseMatches = text.match(japanesePattern);
-    const japanese = japaneseMatches ? japaneseMatches.join(" ") : undefined;
+    const japanese = japaneseMatches ? japaneseMatches.join("") : undefined;
     
-    const hindiWithoutJapanese = text.replace(japanesePattern, "").trim();
-    const hindi = hindiWithoutJapanese || undefined;
+    const englishWithoutJapanese = text.replace(japanesePattern, " ").replace(/\s+/g, " ").trim();
+    const english = englishWithoutJapanese || undefined;
     
-    return { japanese, hindi };
+    return { japanese, english };
   }
 
   async function startGreeting() {
     setAvatarState("thinking");
     
-    const defaultGreeting = "こんにちは！私はゆきです。日本語を練習しましょう。\n\nनमस्ते! मैं युकी हूं। आज हिंदी में बातें करेंगे और जापानी सीखेंगे।";
+    const defaultGreeting = "こんにちは！私はゆきです。日本語を練習しましょう！Hello! I'm Yuki. Let's practice Japanese together!";
     
     try {
       const response = await fetch("/api/chat", {
@@ -144,14 +126,14 @@ export default function PracticePage() {
       }
 
       const greetingText = data.text || defaultGreeting;
-      const { japanese, hindi } = extractJapaneseAndHindi(greetingText);
+      const { japanese, english } = extractJapaneseAndEnglish(greetingText);
       
       const greetingMessage: Message = {
         id: `temp-${Date.now()}`,
         role: "assistant",
         content: greetingText,
         japaneseText: japanese,
-        hindiText: hindi,
+        englishText: english,
         createdAt: new Date(),
       };
 
@@ -159,20 +141,20 @@ export default function PracticePage() {
       conversationHistoryRef.current = [...conversationHistoryRef.current, greetingMessage];
 
       await saveMessage(greetingMessage);
-      await playTTS(hindi || greetingText);
+      await playTTS(greetingText, "english");
     } catch (err) {
       console.error("Error starting greeting:", err);
       const greetingMessage: Message = {
         id: `temp-${Date.now()}`,
         role: "assistant",
         content: defaultGreeting,
-        japaneseText: "こんにちは！私はゆきです。日本語を練習しましょう。",
-        hindiText: "नमस्ते! मैं युकी हूं। आज हिंदी में बातें करेंगे और जापानी सीखेंगे।",
+        japaneseText: "こんにちは！私はゆきです。日本語を練習しましょう！",
+        englishText: "Hello! I'm Yuki. Let's practice Japanese together!",
         createdAt: new Date(),
       };
       setMessages((prev) => [...prev, greetingMessage]);
       conversationHistoryRef.current = [...conversationHistoryRef.current, greetingMessage];
-      await playTTS("नमस्ते! मैं युकी हूं। आज हिंदी में बातें करेंगे और जापानी सीखेंगे।");
+      await playTTS("Hello! I'm Yuki. Let's practice Japanese together!", "english");
     }
   }
 
@@ -237,68 +219,61 @@ export default function PracticePage() {
     return data.text;
   }
 
-  async function playTTS(text: string) {
+  async function playTTS(text: string, language: "english" | "japanese" = "english") {
     return new Promise<void>((resolve) => {
-      if (!speechSynthesisRef.current) {
-        console.warn("Speech synthesis not supported");
-        setAvatarState("idle");
-        resolve();
-        return;
-      }
-
       setAvatarState("speaking");
 
-      try {
-        speechSynthesisRef.current.cancel();
+      fetch("/api/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language }),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("TTS failed");
+          }
+          return response.blob();
+        })
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
 
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "hi-IN";
-        utterance.rate = 0.85;
-        utterance.pitch = 1.0;
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
 
-        const voices = speechSynthesisRef.current.getVoices();
-        console.log("Looking for Hindi voice...");
-        const hindiVoice = voices.find(v => v.lang.startsWith("hi"));
-        
-        if (hindiVoice) {
-          console.log("Found Hindi voice:", hindiVoice.name);
-          utterance.voice = hindiVoice;
-        } else {
-          console.log("No Hindi voice found, using default");
-        }
+          audioRef.current = new Audio(url);
 
-        let levelInterval: NodeJS.Timeout | null = null;
+          audioRef.current.onended = () => {
+            setAvatarState("idle");
+            setAudioLevel(0);
+            resolve();
+          };
 
-        utterance.onstart = () => {
-          console.log("TTS started");
-          levelInterval = setInterval(() => {
-            setAudioLevel(0.3 + Math.random() * 0.5);
-          }, 100);
-        };
+          audioRef.current.onerror = () => {
+            console.error("Audio playback error");
+            setAvatarState("idle");
+            setAudioLevel(0);
+            resolve();
+          };
 
-        utterance.onend = () => {
-          console.log("TTS ended");
-          if (levelInterval) clearInterval(levelInterval);
+          audioRef.current.onplaying = () => {
+            const updateLevel = () => {
+              if (audioRef.current && !audioRef.current.paused) {
+                setAudioLevel(0.3 + Math.random() * 0.5);
+                requestAnimationFrame(updateLevel);
+              }
+            };
+            updateLevel();
+          };
+
+          return audioRef.current.play();
+        })
+        .catch((err) => {
+          console.error("TTS error:", err);
           setAvatarState("idle");
           setAudioLevel(0);
           resolve();
-        };
-
-        utterance.onerror = (event) => {
-          console.error("TTS error:", event.error);
-          if (levelInterval) clearInterval(levelInterval);
-          setAvatarState("idle");
-          setAudioLevel(0);
-          resolve();
-        };
-
-        speechSynthesisRef.current.speak(utterance);
-        console.log("Speaking:", text);
-      } catch (err) {
-        console.error("TTS exception:", err);
-        setAvatarState("idle");
-        resolve();
-      }
+        });
     });
   }
 
@@ -333,14 +308,14 @@ export default function PracticePage() {
       const response = await getChatResponse(transcript);
       console.log("Chat response:", response);
       
-      const { japanese, hindi } = extractJapaneseAndHindi(response);
+      const { japanese, english } = extractJapaneseAndEnglish(response);
 
       const assistantMessage: Message = {
         id: `temp-${Date.now()}-assistant`,
         role: "assistant",
         content: response,
         japaneseText: japanese,
-        hindiText: hindi,
+        englishText: english,
         createdAt: new Date(),
       };
 
@@ -349,7 +324,7 @@ export default function PracticePage() {
 
       await saveMessage(assistantMessage);
 
-      await playTTS(hindi || response);
+      await playTTS(response, "english");
     } catch (err) {
       console.error("Error processing audio:", err);
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
@@ -359,7 +334,7 @@ export default function PracticePage() {
         id: `temp-${Date.now()}`,
         role: "assistant",
         content: `Sorry, I couldn't process that. Please try again.`,
-        hindiText: `माफ़ कीजिए, कुछ गड़बड़ हो गई। कृपया फिर से कोशिश करें।`,
+        englishText: `Sorry, I couldn't process that. Please try again.`,
         createdAt: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -369,8 +344,8 @@ export default function PracticePage() {
   }, [conversationId]);
 
   const handleEndSession = async () => {
-    if (speechSynthesisRef.current) {
-      speechSynthesisRef.current.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
     }
     router.push("/");
   };

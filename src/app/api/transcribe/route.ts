@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { DeepgramClient } from "@deepgram/sdk";
+import { Readable } from "stream";
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
+const deepgram = new DeepgramClient({
+  apiKey: process.env.DEEPGRAM_API_KEY,
 });
-
-const WHISPER_MODEL = "whisper-large-v3";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,21 +18,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("Transcribing audio, size:", audioFile.size, "type:", audioFile.type);
+    console.log("Transcribing audio with Deepgram, size:", audioFile.size, "type:", audioFile.type);
 
     const buffer = Buffer.from(await audioFile.arrayBuffer());
-    
-    const transcription = await groq.audio.transcriptions.create({
-      file: new File([buffer], "audio.webm", { type: audioFile.type || "audio/webm" }),
-      model: WHISPER_MODEL,
-      language: "ja",
-      response_format: "json",
+    const stream = Readable.from(buffer);
+
+    const response = await deepgram.listen.v1.media.transcribeFile(stream, {
+      model: "nova-2",
     });
 
-    console.log("Transcription result:", transcription.text);
+    const data = response as any;
+    const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
+    console.log("Deepgram transcription:", transcript);
 
     return NextResponse.json({
-      text: transcription.text || "",
+      text: transcript,
     });
   } catch (error) {
     console.error("Transcription error:", error);
